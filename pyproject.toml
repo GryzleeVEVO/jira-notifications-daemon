@@ -1,0 +1,10 @@
+[project]
+name = "jira-notifications-daemon"
+version = "0.1.0"
+description = "A polling notifications daemon for JIRA"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "desktop-notifier==6.2.0",
+    "jira==3.10.5",
+]
