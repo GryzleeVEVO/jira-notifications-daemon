@@ -2,6 +2,7 @@ import asyncio
 import os
 import random
 import webbrowser
+import logging
 from desktop_notifier import DesktopNotifier
 from jira import JIRA, Issue
 
@@ -19,6 +20,8 @@ NOTIFICATION_RATE_MAX = 2
 # How often the JIRA API is polled for new updates
 POLLING_RATE = 10
 
+logger = logging.getLogger(__name__)
+
 
 async def notify_loop(notifier: DesktopNotifier, queue: asyncio.Queue[Issue]):
     """
@@ -27,7 +30,7 @@ async def notify_loop(notifier: DesktopNotifier, queue: asyncio.Queue[Issue]):
     while True:
         issue = await queue.get()
 
-        print("notify_loop: got issue", issue)
+        logging.info("Retrieved issue %s from queue", issue)
 
         _ = await notifier.send(
             title=issue.key,
@@ -53,35 +56,40 @@ async def jira_loop(jira: JIRA, queue: asyncio.Queue[Issue]):
             issues = jira.search_issues(JQL_QUERY, maxResults=10)
 
             for issue in issues:
+                logger.debug("Found issue %s", issue.key)
                 if issue.key not in issues_seen or issue.fields.updated != issues_seen[issue.key]:
                     issues_seen[issue.key] = issue.fields.updated
 
                     if not first_iter:
-                        print("jira_loop: sending issue", issue.key)
+                        logger.info("Sending issue %s to queue", issue.key)
                         await queue.put(issue)
         except Exception as e:
-            print(e)
-            raise
+            logger.error(e)
         finally:
             first_iter = False
             await asyncio.sleep(POLLING_RATE)
 
 
 async def main():
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(name)s[%(process)d]: %(funcName)s: %(message)s"
+    )
+
     if not len(JIRA_BASE_URL) > 0:
-        print("No base URL defined")
+        logging.critical("No base URL defined")
         exit(1)
 
     if not len(JIRA_API_TOKEN) > 0:
-        print("No API token defined")
+        logging.critical("No API token defined")
         exit(1)
 
     if not len(JIRA_EMAIL) > 0:
-        print("No email defined")
+        logging.critical("No email defined")
         exit(1)
 
     if not len(JQL_QUERY) > 0:
-        print("No JQL query defined")
+        logging.critical("No JQL query defined")
         exit(1)
 
     notifier = DesktopNotifier()
