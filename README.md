@@ -6,7 +6,7 @@ This program polls the JIRA API for new and updated tickets as defined by a JQL 
 
 ## Requirements
 
-This project requires Python 3.19 or higher. Lower versions of Python or its dependencies may work, but it's not tested.
+This project requires Python 3.13 or higher. Lower versions of Python or its dependencies may work, but it's not tested.
 
 This project uses `uv` for dependency management. This is not strictly necessary, otherwise install the following dependencies:
 
