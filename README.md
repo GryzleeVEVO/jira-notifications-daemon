@@ -18,7 +18,7 @@ Note this has only been tested on Linux.
 ## Quickstart
 
 ```sh
-git clone https://github.com/GryzleeVEVO/jria-notifications-daemon
+git clone https://github.com/GryzleeVEVO/jira-notifications-daemon
 uv sync
 uv run --env-file .env jira-notifd.py
 ```

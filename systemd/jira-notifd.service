@@ -1,0 +1,14 @@
+[Unit]
+Description=JIRA Notifications Daemon
+
+[Service]
+ExecStartPre=/usr/bin/sleep 5
+ExecStart=%h/src/jira-notifications-daemon/.venv/bin/python %h/src/jira-notifications-daemon/jira-notifd.py
+WorkingDirectory=%h/src/jira-notifications-daemon
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5
+Type=exec
+
+[Install]
+WantedBy=default.target

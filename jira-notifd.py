@@ -1,46 +1,77 @@
 import asyncio
-import os
-import random
-import webbrowser
 import logging
-from desktop_notifier import DesktopNotifier
+import webbrowser
+import os
+from configparser import ConfigParser
+from pathlib import Path
+
+from desktop_notifier import DesktopNotifier, Icon
 from jira import JIRA, Issue
 
-JIRA_BASE_URL = os.getenv(
-    "JIRA_BASE_URL", ""
-)
-JIRA_EMAIL = os.getenv("JIRA_EMAIL", "")
-JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN", "")
-JQL_QUERY = os.getenv("JQL_QUERY", "")
+# Config
+config_path = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME")
+    or os.path.join(os.environ.get("HOME", ""), ".config"),
+    "jira-notifications",
+    "config.ini"
+) if (os.environ.get("XDG_CONFIG_HOME") or os.environ.get("HOME")) \
+  else "./config.ini"
 
-# Controls how often a new notification is popped from the queue
-NOTIFICATION_RATE_MIN = 2
-NOTIFICATION_RATE_MAX = 2
+config = ConfigParser()
+_ = config.read("config.ini")
 
-# How often the JIRA API is polled for new updates
-POLLING_RATE = 10
+LOGGING_LEVEL = logging.getLevelNamesMapping(
+)[config.get('App', 'LoggingLevel', fallback="DEBUG")]
+JIRA_URL = config.get('Jira', 'BaseUrl')
+JIRA_USERNAME = config.get('Jira', 'Username')
+JIRA_API_TOKEN = config.get('Jira', 'Token')
+JIRA_QUERY = config.get('Jira', 'Query')
+JIRA_POLLING_RATE = config.getint('Jira', 'PollingRate', fallback=10)
+NOTIFICATIONS_RATE = config.getint('Notifications', 'Rate', fallback=2)
+NOTIFICATIONS_ICON_PATH = config.get(
+    'Notifications', 'IconPath', fallback=None)
 
+assert len(JIRA_URL) >= 0, "JIRA URL not defined"
+assert len(JIRA_USERNAME) >= 0, "JIRA username not defined"
+assert len(JIRA_API_TOKEN) >= 0, "No JIRA API token provided"
+assert len(JIRA_QUERY) >= 0, "Query not defined"
+
+# Logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=LOGGING_LEVEL,
+    format="%(asctime)s %(name)s[%(process)d]: %(funcName)s: %(message)s"
+)
+
+# Notifier
+notifier = DesktopNotifier()
+
+# JIRA
+jira = JIRA(server=JIRA_URL, basic_auth=(JIRA_USERNAME, JIRA_API_TOKEN),)
+queue: asyncio.Queue[Issue] = asyncio.Queue()
 
 
 async def notify_loop(notifier: DesktopNotifier, queue: asyncio.Queue[Issue]):
     """
     Loop that awaits new notifications in a queue and displays them.
     """
+    icon = Icon(Path(NOTIFICATIONS_ICON_PATH)) if NOTIFICATIONS_ICON_PATH else None
+
     while True:
         issue = await queue.get()
 
-        logging.info("Retrieved issue %s from queue", issue)
+        logger.info("Retrieved issue %s from queue", issue)
 
         _ = await notifier.send(
             title=issue.key,
             message=issue.fields.summary,
             on_clicked=lambda: webbrowser.open(
-                f"{JIRA_BASE_URL}/browse/{issue.key}")
+                f"{JIRA_URL}/browse/{issue.key}"),
+            icon=icon
         )
 
         # Add a random timeout to debounce notifications
-        await asyncio.sleep(random.randint(NOTIFICATION_RATE_MIN, NOTIFICATION_RATE_MAX))
+        await asyncio.sleep(NOTIFICATIONS_RATE)
 
 
 async def jira_loop(jira: JIRA, queue: asyncio.Queue[Issue]):
@@ -53,10 +84,10 @@ async def jira_loop(jira: JIRA, queue: asyncio.Queue[Issue]):
 
     while True:
         try:
-            issues = jira.search_issues(JQL_QUERY, maxResults=10)
+            issues = jira.search_issues(JIRA_QUERY, maxResults=10)
+            logger.debug("Found issues: %s", [issue.key for issue in issues])
 
             for issue in issues:
-                logger.debug("Found issue %s", issue.key)
                 if issue.key not in issues_seen or issue.fields.updated != issues_seen[issue.key]:
                     issues_seen[issue.key] = issue.fields.updated
 
@@ -67,38 +98,10 @@ async def jira_loop(jira: JIRA, queue: asyncio.Queue[Issue]):
             logger.error(e)
         finally:
             first_iter = False
-            await asyncio.sleep(POLLING_RATE)
+            await asyncio.sleep(JIRA_POLLING_RATE)
 
 
 async def main():
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s %(name)s[%(process)d]: %(funcName)s: %(message)s"
-    )
-
-    if not len(JIRA_BASE_URL) > 0:
-        logging.critical("No base URL defined")
-        exit(1)
-
-    if not len(JIRA_API_TOKEN) > 0:
-        logging.critical("No API token defined")
-        exit(1)
-
-    if not len(JIRA_EMAIL) > 0:
-        logging.critical("No email defined")
-        exit(1)
-
-    if not len(JQL_QUERY) > 0:
-        logging.critical("No JQL query defined")
-        exit(1)
-
-    notifier = DesktopNotifier()
-    jira = JIRA(
-        server=JIRA_BASE_URL,
-        basic_auth=(JIRA_EMAIL, JIRA_API_TOKEN),
-    )
-    queue: asyncio.Queue[Issue] = asyncio.Queue()
-
     tasks = [
         asyncio.create_task(notify_loop(notifier, queue)),
         asyncio.create_task(jira_loop(jira, queue))
